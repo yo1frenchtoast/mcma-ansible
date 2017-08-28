@@ -1,0 +1,86 @@
+---
+- hosts: mcmyadmin
+  vars:
+    # created with
+    # python -c 'import crypt; print crypt.crypt("This is my Password", "$1$SomeSalt$")'
+    password: $1$SomeSalt$9039pDSfM2QyKJauxYlUE0 
+
+  tasks:
+  - name: Install required packages
+    apt: 
+      name: "{{ item }}"
+      state: installed
+      update_cache: yes
+    with_items:
+      - wget
+      - curl
+      - git
+      - zip
+      - unzip
+      - default-jre-headless
+      - default-jdk-headless
+      - python
+      - python-pexpect
+      - screen
+
+  - name: Download and install Mono lib
+    command: "{{ item }}"
+    args:
+      chdir: /usr/local/
+    with_items:
+      - wget http://mcmyadmin.com/Downloads/etc.zip
+      - unzip -o etc.zip
+      - rm -f etc.zip
+
+  - name: Create new user mcmyadmin
+    user:
+      name: mcmyadmin
+      password: "{{ password }}"
+      createhome: yes
+
+  - name: Create McMyAdmin directory
+    become: yes
+    become_user: mcmyadmin
+    file:
+      path: /home/mcmyadmin/McMyAdmin/
+      state: directory
+
+  - name: Download and setup McMyAdmin
+    become: yes
+    become_user: mcmyadmin
+    command: "{{ item }}"
+    args:
+      chdir: /home/mcmyadmin/McMyAdmin/
+    with_items:
+      - wget http://mcmyadmin.com/Downloads/MCMA2_glibc26_2.zip
+      - unzip MCMA2_glibc26_2.zip
+      - rm -f MCMA2_glibc26_2.zip
+
+  - name: Run McMyAdmin installation script
+    become: yes
+    become_user: mcmyadmin
+    expect:
+      chdir: /home/mcmyadmin/McMyAdmin/
+      command: ./MCMA2_Linux_x86_64 -setpass password -configonly
+      responses:
+        'Continue\? \[y/n\] :': 'y'
+    register: install
+  - debug:
+      msg: "{{ install.stdout.split('\n') }}"
+
+  - name: Download and setup mcma init.d script
+    command: "{{ item }}"
+    with_items:
+      - git -c http.sslVerify=false clone https://github.com/yo1frenchtoast/McMa.git
+      - cp McMa/mcma /etc/init.d/mcma
+      - rm -rf McMa/
+      - chmod a+x /etc/init.d/mcma
+      - update-rc.d mcma defaults 99 01
+
+  - name: Start mcma service
+    service:
+      name: mcma
+      state: started
+
+  - debug:
+      msg: "McMyAdmin has been succefully installed, you can connect to the web interface on http://{{ ansible_host }}:8080"
